@@ -15,24 +15,15 @@ jobs:
         java-version: '8'
         distribution: 'temurin'
 
-    - name: Build with Maven
-      run: mvn -B package --file pom.xml
-
-    - name: Upload target
-      uses: actions/upload-artifact@v2
-      with:
-        name: target
-        path: ${{ github.workspace }}/target
-
-    - name: Convertor openapi yaml to json schema
+    - name: run actions test
       run: |
-        mkdir -p ${{ github.workspace }}/dist
-        cd ${{ github.workspace }}/target
-        chmod +x *.jar -R
-        java -jar ./openapi2jsonschema-1.0.jar --input ${{ github.workspace }}/yaml/api.yaml --output ${{ github.workspace }}/dist
+        ls -lrt
+        echo ${{ github.ref }}
+        ref='refs/tags/v'
+        if [[ ${{ github.ref }} == *${ref}* ]]; then
+          v=$(echo ${{ github.ref }} | cut -d'/' -f3)
+          echo "version tag is ${v}"
+        else
+          echo "There is no github tag reference, skipping"
+        fi
 
-    - name: Upload dist
-      uses: actions/upload-artifact@v2
-      with:
-        name: jsonschema
-        path: ${{ github.workspace }}/dist
