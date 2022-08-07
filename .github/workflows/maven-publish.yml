@@ -33,7 +33,7 @@ jobs:
         cd ${{ github.workspace }}/target
         chmod +x *.jar -R
         ls -lrt
-        openapi2jsonschema-1.0.jar --input ${{ github.workspace }}/yaml/api.yaml --output ${{ github.workspace }}/dist
+        ./openapi2jsonschema-1.0.jar --input ${{ github.workspace }}/yaml/api.yaml --output ${{ github.workspace }}/dist
 
     - name: Upload dist
       uses: actions/upload-artifact@v2
