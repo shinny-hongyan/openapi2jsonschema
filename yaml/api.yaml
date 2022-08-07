@@ -1,0 +1,2571 @@
+openapi: 3.0.1
+
+info:
+  title: 众期管理接口
+  description: ''
+  version: 1.0.0
+
+tags:
+- name: 登录
+- name: 系统状态
+- name: 后端账户
+- name: 用户/用户组/角色/权限
+- name: 交易模式
+- name: 费率配置
+- name: 风控规则
+- name: 出入金
+- name: 异常单
+- name: 交易
+- name: 消息收发
+
+servers:
+  - url: http://localhost:{port}/v1
+    variables:
+      port:
+        default: '1234'
+
+security:
+  - bearerAuth: []
+
+paths:
+  "/login":
+    post:
+      summary: 获取登录令牌token
+      description: | 
+        众期管理接口使用 Bearer (RFC 6750) 鉴权. 
+
+        客户端必须先通过 /login 获取一个 token, 此后访问任何其它API都需要在 header 中携带此 token.
+      tags:
+      - 登录
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/Login"
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Token"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  "/user-profile":
+    get:
+      summary: 获取用户基础信息
+      description: '获取当前登录用户基础信息(用户、用户组、角色及权限信息)'
+      tags:
+      - 登录
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/UserProfile"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/status":
+    get:
+      summary: 获取服务器状态
+      description: '获取系统当前交易日和状态信息(未初始化/交易中/已结算)'
+      tags:
+      - 系统状态
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/SystemStatus"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/status/tradingday":
+    post:
+      summary: 初始化交易日
+      description: '系统初始化至指定交易日. 操作者需持有 P_WRITE_STATUS 权限方可调用本接口.'
+      tags:
+      - 系统状态
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                trading_day:
+                  type: integer
+                  description: '交易日, 格式 YYYYMMDD'
+              required:
+              - trading_day
+            example:
+              trading_day: 20220101
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ApiResponse"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/status/settlement":
+    post:
+      summary: 执行结算
+      description: '以指定价格类型进行结算. 操作者需持有 P_WRITE_STATUS 权限方可调用本接口.'
+      tags:
+      - 系统状态
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                price_type:
+                  type: string
+                  enum: [PRESETTLE, SETTLE, LAST]
+                  description: |
+                   结算价格类型
+
+                   - PRESETTLE 昨结价 
+                   - SETTLE 结算价
+                   - LAST 最新价
+              required:
+              - price_type
+            example:
+              price_type: PRESETTLE
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ApiResponse"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/permissions":
+    get:
+      summary: 获取服务器所有权限清单
+      description: '获取服务器所有权限清单'
+      tags:
+      - 用户/用户组/角色/权限
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datas:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Permission"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/roles":
+    get:
+      summary: 获取角色清单
+      description: '获取角色清单'
+      tags:
+      - 用户/用户组/角色/权限
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datas:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Role"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/groups":
+    get:
+      summary: 获取组清单
+      description: '获取用户所在的组及所有后代组清单. 用户必须持有 PG_READ_GROUP 权限方可调用本接口.'
+      tags:
+      - 用户/用户组/角色/权限
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datas:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Group"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      summary: 创建新组
+      description: |
+        创建新组.
+        
+        操作者只允许创建自身所在组的后代组.
+        操作者必须持有 PG_WRITE_GROUP 权限方可调用本接口.
+      tags:
+      - 用户/用户组/角色/权限
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/GroupInfo"
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Group"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/groups/{gid}":
+    delete:
+      summary: 删除一个组
+      description: |
+        删除一个组.
+        
+        操作者只允许删除自身所在组的后代组.
+        非空(还有下级用户或下级组)的组不能删除.
+        操作者必须持有 PG_WRITE_GROUP 权限方可调用本接口.
+      tags:
+      - 用户/用户组/角色/权限
+      parameters:
+      - name: gid
+        in: path
+        description: '组ID'
+        required: true
+        schema:
+          type: integer
+      responses:
+        '204':
+          description: 对象已删除
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ApiResponse"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/groups/{gid}/name":
+    put:
+      summary: 修改组名
+      description: |
+        修改组名.
+        
+        操作者只允许操作自身所在组的后代组.
+        操作者必须持有 PG_WRITE_GROUP 权限方可调用本接口.
+      tags:
+      - 用户/用户组/角色/权限
+      parameters:
+      - name: gid
+        in: path
+        description: '组ID'
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                group_name:
+                  type: string
+                  description: '组名称'
+              required:
+              - group_name
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Group"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/groups/{gid}/trade-mode":
+    get:
+      summary: 获取组的交易模式
+      description: |
+        获取组的交易模式.
+        
+        操作者只允许操作自身所在组及后代组.
+        操作者必须持有 PG_READ_GROUP 权限方可调用本接口.
+      tags:
+      - 交易模式
+      parameters:
+      - name: gid
+        description: '组ID'
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/TradeMode"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      summary: 设定组的交易模式
+      description: |
+        设定组的交易模式.
+        
+        操作者只允许操作自身所在组及后代组.
+        操作者必须持有 PG_WRITE_TRADE_MODE 权限方可调用本接口.
+      tags:
+      - 交易模式
+      parameters:
+      - name: gid
+        description: '组ID'
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/TradeMode"
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/TradeMode"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/groups/{gid}/risk-control-rule":
+    get:
+      summary: 列出风控规则
+      description: |
+        列出组{gid}直接包含的风控规则, 不包括继承自上级组的规则.
+        
+        操作者只允许访问自身所在组及后代组.
+        操作者必须持有 PG_READ_GROUP 权限方可调用本接口.
+      tags:
+      - 风控规则
+      parameters:
+      - name: gid
+        description: '组ID'
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datas:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/RiskControlRule"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      summary: 新建一条风控规则
+      description: |
+        在组{gid}中新建一条风控规则
+        
+        操作者只允许操作自身所在组及后代组.
+        操作者必须持有 PG_WRITE_RISK_CONTROL_RULE 权限方可调用本接口.
+      tags:
+      - 风控规则
+      parameters:
+      - name: gid
+        description: '组ID'
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RiskControlRuleInfo"
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/RiskControlRule"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/groups/{gid}/risk-control-rule/{rid}":
+    delete:
+      summary: 删除一条风控规则
+      description: |
+        在组{gid}中删除一条风控规则.
+        
+        操作者只允许操作自身所在组及后代组.
+        操作者必须持有 PG_WRITE_RISK_CONTROL_RULE 权限方可调用本接口.
+      tags:
+      - 风控规则
+      parameters:
+      - name: gid
+        description: '组ID'
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: rid
+        description: '风控规则ID'
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        '204':
+          description: 对象已删除
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ApiResponse"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/groups/{gid}/risk-control-rule/{rid}/expression":
+    put:
+      summary: 修改一条风控规则的条件
+      description: |
+        在组{gid}中修改风控规则{rid}的规则.
+        
+        操作者只允许操作自身所在组及后代组.
+        操作者必须持有 PG_WRITE_RISK_CONTROL_RULE 权限方可调用本接口.
+      tags:
+      - 风控规则
+      parameters:
+      - name: gid
+        description: '组ID'
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: rid
+        description: '风控规则ID'
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expression:
+                  type: string
+                  description: '风控规则表达式'
+              required:
+              - expression
+      responses:
+        '200':
+          description: 修改成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/RiskControlRule"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/groups/{gid}/rate":
+    get:
+      summary: 获取某个组的费率配置
+      description: |
+        获取组{gid}的费率配置.
+        
+        操作者只允许操作自身所在组及后代组.
+        操作者必须持有 PG_READ_GROUP 权限方可调用本接口.
+      tags:
+      - 费率配置
+      parameters:
+      - name: gid
+        description: '组ID'
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/RateConfig"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      summary: 设置某个组的费率配置
+      description: |
+        设置组{gid}的费率配置.
+        
+        操作者只允许操作自身所在组及后代组.
+        操作者必须持有 PG_WRITE_RATE 权限方可调用本接口.
+      tags:
+      - 费率配置
+      parameters:
+      - name: gid
+        description: '组ID'
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RateConfig"
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/RateConfig"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/users":
+    get:
+      summary: 获取用户清单
+      description: |
+        获取当前登录用户所在组及子组的所有用户.
+        
+        操作者必须持有 PG_READ_GROUP 权限方可调用本接口.
+      tags:
+      - 用户/用户组/角色/权限
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datas:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/User"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      summary: 创建新用户
+      description: |
+        创建一个新用户,并指定该用户所在组和角色.
+        
+        操作者只允许在自身所在组及后代组中创建新用户.
+        操作者必须持有 PG_WRITE_USER 权限方可调用本接口.
+      tags:
+      - 用户/用户组/角色/权限
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/UserInfo"
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/User"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/users/{id}":
+    delete:
+      summary: 删除一个用户
+      description: |
+        删除用户{id}.
+        
+        拥有持仓、活跃委托单或资金余额>0的用户不能删除.
+        操作者只允许在自身所在组及后代组中删除用户.
+        操作者必须持有 PG_WRITE_USER 权限方可调用本接口.
+      tags:
+      - 用户/用户组/角色/权限
+      parameters:
+      - name: id
+        in: path
+        description: '用户ID'
+        required: true
+        schema:
+          type: integer
+      responses:
+        '204':
+          description: 对象已删除
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ApiResponse"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/users/{id}/group":
+    put:
+      summary: 修改用户所属组
+      description: |
+        修改用户{id}所属组.
+        
+        拥有持仓或活跃委托单的用户不能修改所属组.
+        操作者只允许在自身所在组及后代组中删除用户.
+        操作者必须持有 PG_WRITE_USER 权限方可调用本接口.
+      tags:
+      - 用户/用户组/角色/权限
+      parameters:
+      - name: id
+        in: path
+        description: '用户ID'
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                group_id:
+                  type: integer
+                  description: '目标组ID'
+              required:
+              - group_id
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/User"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/users/{id}/alias":
+    put:
+      summary: 修改用户别名
+      description: |
+        修改用户{id}用户别名.
+        
+        操作者只允许在自身所在组及后代组中操作.
+        操作者必须持有 PG_WRITE_USER 权限方可调用本接口.
+      tags:
+      - 用户/用户组/角色/权限
+      parameters:
+      - name: id
+        in: path
+        description: '用户ID'
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                alias_name:
+                  type: string
+                  description: '用户别名'
+              required:
+              - alias_name
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/User"
+                required:
+                - data
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/users/{id}/password":
+    put:
+      summary: 修改用户密码
+      description: |
+        修改用户{id}的密码.
+        
+        修改密码操作对此后的登录请求生效, 已经登录在线的终端不受影响.
+        操作者只允许在自身所在组及后代组中操作.
+        操作者必须持有 PG_WRITE_USER 权限方可调用本接口.
+      tags:
+      - 用户/用户组/角色/权限
+      parameters:
+      - name: id
+        in: path
+        description: '用户ID'
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  description: '密码'
+              required:
+              - password
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/User"
+                required:
+                - data
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/users/{id}/role":
+    put:
+      summary: 修改用户所属角色
+      description: |
+        修改用户{id}所属角色.
+        
+        操作者只允许在自身所在组及后代组中操作.
+        操作者必须持有 PG_WRITE_USER 权限方可调用本接口.
+      tags:
+      - 用户/用户组/角色/权限
+      parameters:
+      - name: id
+        in: path
+        description: '用户ID'
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role_id:
+                  type: integer
+                  description: '角色ID'
+              required:
+              - role_id
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/User"
+                required:
+                - data
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/backend/servers":
+    get:
+      summary: 获取后端服务器清单
+      description: |
+        获取后端服务器清单.
+        
+        操作者必须持有 P_READ_BACKEND 权限方可调用本接口.
+      tags:
+      - 后端账户
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datas:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/BackendServer"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/backend/accounts":
+    get:
+      summary: 获取后端账户清单
+      description: |
+        获取后端账户清单.
+        
+        操作者必须持有 P_READ_BACKEND 权限方可调用本接口.
+      tags:
+      - 后端账户
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datas:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/BackendAccount"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      summary: 创建一个后端账户
+      description: |
+        创建一个后端账户.
+        
+        操作者必须持有 P_WRITE_BACKEND 权限方可调用本接口.
+      tags:
+      - 后端账户
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/BackendAccountInfo"
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/BackendAccount"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/backend/accounts/{id}/password":
+    put:
+      summary: 修改后端账户密码
+      description: |
+        修改后端账户{id}的登录密码.
+        
+        此操作仅修改众期系统中保存的后端账户登录密码, 不对后端账户实际进行改密码操作.
+        操作者必须持有 P_WRITE_BACKEND 权限方可调用本接口.
+      tags:
+      - 后端账户
+      parameters:
+      - name: id
+        in: path
+        description: '后端账户ID'
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  description: '登录密码'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/BackendAccount"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/backend/accounts/{id}/alias":
+    put:
+      summary: 修改后端账户别名
+      description: |
+        修改后端账户{id}的别名.
+        
+        操作者必须持有 P_WRITE_BACKEND 权限方可调用本接口.
+      tags:
+      - 后端账户
+      parameters:
+      - name: id
+        in: path
+        description: '后端账户ID'
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                alias_name:
+                  type: string
+                  description: '账户别名'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/BackendAccount"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/backend/accounts/{id}/server":
+    put:
+      summary: 修改后端账户转向的服务器
+      description: |
+        修改后端账户{id}转向的服务器.
+        
+        操作者必须持有 P_WRITE_BACKEND 权限方可调用本接口.
+      tags:
+      - 后端账户
+      parameters:
+      - name: id
+        in: path
+        description: '后端账户ID'
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                server_id:
+                  type: integer
+                  description: 后端服务器ID
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/BackendAccount"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/backend/accounts/{id}":
+    delete:
+      summary: 删除一个后端账户
+      description: |
+        删除指定的后端账户.
+        
+        操作者必须持有 P_WRITE_BACKEND 权限方可调用本接口.
+      tags:
+      - 后端账户
+      parameters:
+      - name: id
+        in: path
+        description: '后端账户ID'
+        required: true
+        schema:
+          type: integer
+      responses:
+        '204':
+          description: 对象已删除
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ApiResponse"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/groups/{gid}/transfer":
+    get:
+      summary: 获取出入金记录清单
+      description: |
+        获取组下所有用户的出入金记录清单.
+        
+        操作者只允许在自身所在组及后代组中获取记录.
+        操作者必须持有 PG_READ_GROUP 权限方可调用本接口.
+      tags:
+      - 出入金
+      parameters:
+      - name: gid
+        in: path
+        description: '组ID'
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datas:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/TransferRecord"
+                required:
+                - data
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/users/{id}/transfer":
+    post:
+      summary: 发起一笔出入金操作
+      description: |
+        发起一笔出入金操作.
+        
+        操作者只允许对自身所在组及后代组中的用户执行出入金.
+        操作者必须持有 PG_WRITE_TRANSFER 权限方可调用本接口.
+      tags:
+      - 出入金
+      parameters:
+      - name: id
+        in: path
+        description: '用户ID'
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/TransferCommand"
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/TransferRecord"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/channels":
+    get:
+      summary: 获取频道清单
+      description: '列出频道清单'
+      tags:
+      - 消息收发
+      parameters:
+      - name: joined
+        in: query
+        description: |
+          当joined=true时, 只返回已加入的频道清单.
+          当joined=false时, 只返回未加入的频道清单.
+          当未提供此参数时, 返回所有频道清单.
+        required: false
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datas:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Channel"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/channels/{id}/messages":
+    get:
+      summary: 获取消息列表
+      description: '获取频道{id}中的消息列表'
+      tags:
+      - 消息收发
+      parameters:
+      - name: id
+        in: path
+        description: '频道ID'
+        required: true
+        schema:
+          type: integer
+      - name: start
+        in: query
+        description: "起始位置, 当该值为正数时, 表示相对第一条消息的起始位置, 其值亦等于消息的序列号; 该值为负数时, 表示相对最后一条消息的起始位置, 具体参考 Python Slice: https://www.w3schools.com/python/ref_func_slice.asp"
+        schema:
+          type: integer
+      - name: end
+        in: query
+        description: "结束位置, 当该值为正数时, 表示相对第一条消息的结束位置; 该值为负数时, 表示相对最后一条消息的结束位置"
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datas:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Message"
+                required:
+                - datas
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      summary: 向频道发送消息
+      description: '向频道{id}发送消息'
+      tags:
+      - 消息收发
+      parameters:
+      - name: id
+        in: path
+        description: '频道ID'
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/MessageInfo"
+            example:
+              type: "text"
+              content: {"text": "halo"}
+              channel_id: 1
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ApiResponse"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/channels/{id}/messages/{mid}/read":
+    post:
+      summary: 消息已读
+      description: '将频道{id}中的消息{mid}标记为已读'
+      tags:
+      - 消息收发
+      parameters:
+      - name: id
+        in: path
+        description: '频道ID'
+        required: true
+        schema:
+          type: integer
+      - name: mid
+        in: path
+        description: '消息ID'
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ApiResponse"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/direct-messages":
+    get:
+      summary: 获取私信用户列表
+      description: '获取当前用户的私信用户列表'
+      tags:
+      - 消息收发
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datas:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/User"
+                required:
+                - datas
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/direct-messages/{user_id}/messages":
+    get:
+      summary: 获取与指定用户的私信消息列表
+      description: '获取与用户{user_id}的私信消息列表'
+      tags:
+      - 消息收发
+      parameters:
+      - name: user_id
+        in: path
+        description: '用户ID'
+        required: true
+        schema:
+          type: integer
+      - name: start
+        in: query
+        description: "起始位置, 当该值为正数时, 表示相对第一条消息的起始位置, 其值亦等于消息的序列号; 该值为负数时, 表示相对最后一条消息的起始位置, 具体参考 Python Slice: https://www.w3schools.com/python/ref_func_slice.asp"
+        schema:
+          type: integer
+      - name: end
+        in: query
+        description: "结束位置, 当该值为正数时, 表示相对第一条消息的结束位置; 该值为负数时, 表示相对最后一条消息的结束位置"
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datas:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Message"
+                required:
+                - datas
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+          
+  "/direct-messages/{user_name}/messages":
+    post:
+      summary: 向用户发送私信消息
+      description: '向用户 {user_name} 发送私信消息'
+      tags:
+      - 消息收发
+      parameters:
+      - name: user_name
+        in: path
+        description: '用户名'
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/MessageInfo"
+            example:
+              type: "text"
+              content: {"text": "halo"}
+              channel_id: 1
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ApiResponse"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/dataviews/{id}":
+    put:
+      summary: 定义一个业务数据视图
+      description: |
+        定义一个业务数据视图.
+        
+        业务视图可以提供期货业务数据, 包含账户资金、持仓、委托单、成交记录等.
+        业务视图中仅包含操作员所在子树的用户数据.
+        操作员必须持有 PG_READ_OTHERS_ACCOUNT 方可调用本接口.
+      tags:
+      - 业务数据视图
+      parameters:
+      - name: id
+        in: path
+        description: '业务数据视图ID'
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/DataViewSpecification"
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DataViewSnap"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/dataviews/{id}/snap":
+    get:
+      summary: 获取一个业务数据视图的当前数据值
+      description: |
+        获取一个业务数据视图的当前数据值.
+        
+        操作员仅能获取自己创建的 dataview 的数据.
+        操作员必须持有 PG_READ_OTHERS_ACCOUNT 方可调用本接口.
+      tags:
+      - 业务数据视图
+      parameters:
+      - name: id
+        in: path
+        description: '业务数据视图ID'
+        required: true
+        schema:
+          type: string
+      - name: received-version
+        in: query
+        description: '已收到的业务数据版本号'
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DataViewSnap"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/abnormal-orders":
+    get:
+      summary: '获取异常单'
+      description: |
+        获取异常单列表.
+      tags:
+      - 异常单
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datas:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/AbnormalOrder"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/abnormal-orders/{id}/resolve":
+    post:
+      summary: '处理异常单'
+      description: |
+        将一个异常单指派给某个用户.
+        
+        操作员仅能将异常单指派给自己所在子树中的用户.
+        操作员必须持有 PG_WRITE_OTHERS_ACCOUNT 方可调用本接口.
+      tags:
+      - 异常单
+      parameters:
+      - name: id
+        in: path
+        description: '异常单ID'
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                front_user_key:
+                  type: string
+                  description: '目标用户, 填写用户名'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/AbnormalOrder"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/users/{id}/orders":
+    post:
+      summary: 下单接口
+      description: |
+        下单接口.
+        
+        操作者可以通过此接口为自己的账户下单. 此时要求操作者持有 P_WRITE_SELF_ACCOUNT 权限.
+        操作者也可以通过此接口为自己所在子树的其它用户下单. 此时要求操作者持有 PG_WRITE_OTHERS_ACCOUNT 权限.
+      tags:
+      - 交易
+      parameters:
+      - name: id
+        description: '用户ID'
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/OrderInfo"
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Order"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  "/users/{id}/orders/{order_id}":
+    delete:
+      summary: 撤单接口
+      description: |
+        对委托单{order_id}执行撤单操作.
+        
+        操作者可以通过此接口为自己的账户撤单. 此时要求操作者持有 P_WRITE_SELF_ACCOUNT 权限.
+        操作者也可以通过此接口为自己所在子树的其它用户撤单. 此时要求操作者持有 PG_WRITE_OTHERS_ACCOUNT 权限.
+      tags:
+      - 交易
+      parameters:
+      - name: id
+        description: '用户ID'
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: order_id
+        description: '报单编号'
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: 撤单成功
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ApiResponse"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    OK:
+      description: 成功
+      content:
+        application/json:
+          schema:
+            "$ref": "#/components/schemas/ApiResponse"
+    BadRequest:
+      description: 请求错误
+      content:
+        application/json:
+          schema:
+            "$ref": "#/components/schemas/ApiResponse"
+    Unauthorized:
+      description: 认证失败
+      content:
+        application/json:
+          schema:
+            "$ref": "#/components/schemas/ApiResponse"
+    NotFound:
+      description: 目标不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+    NotAcceptable:
+      description: 不接受的请求
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+    Forbidden:
+      description: |
+        禁止访问
+
+        请确认
+        - 请求 header Authorization 中是否包含 token 信息
+        - token 是否有效
+        - 登录用户是否拥有该操作权限
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+
+  schemas:
+    ExchangeId:
+      type: string
+      enum: [SHFE, CFFEX, CZCE, DCE, INE, SSWE, SSE, SZSE]
+      description: |
+       交易所代码, 大小写敏感
+       - SHFE 上海期货交易所
+       - CFFEX 中金所
+       - CZCE 郑商所
+       - DCE 大商所
+       - INE 国际能源中心
+       - SSWE 上期所仓单交易平台
+       - SSE 上海证券交易所
+       - SZSE 深圳证券交易所
+    Direction:
+      type: string
+      enum: [BUY, SELL]
+      description: |
+       下单方向
+       - BUY 买入
+       - SELL 卖出
+    Offset:
+      type: string
+      enum: [OPEN, CLOSE, CLOSE_TODAY, CLOSE_YESTERDAY]
+      description: |
+       开平标志
+       - OPEN 开仓
+       - CLOSE 平仓
+       - CLOSE_TODAY 平今
+       - CLOSE_YESTERDAY 平昨
+    OrderStatus:
+      type: string
+      enum: [ALIVE, DEAD]
+      description: |
+        报单状态
+        - ALIVE 未完成
+        - DEAD 已完成
+    OrderPriceType:
+      type: string
+      enum: [LIMIT, ANY, BEST, FIVE_LEVEL]
+      description: |
+       价格类型
+       - LIMIT 限价
+       - ANY 任意价
+       - BEST 最优价
+       - FIVE_LEVEL 五档价
+    OrderVolumeCondition:
+      type: string
+      enum: [ANY, MIN, ALL]
+      description: |
+       成交量类型
+       - ANY 允许委托单成交任何数量
+       - MIN 最小数量
+       - ALL 全部数量
+    OrderTimeCondition:
+      type: string
+      enum: [IOC, GFS, GFD, GTD, GTC, GFA]
+      description: |
+        有效期类型, 默认值为 GFD(当日有效)
+        - IOC 立即完成，否则撤销
+        - GFS 本节有效. 目前没有交易所支持此选项
+        - GFD 当日有效
+        - GTD 指定日期前有效. 目前没有交易所支持此选项
+        - GTC 撤销前有效. 目前没有交易所支持此选项
+        - GFA 集合竞价有效. 目前没有交易所支持此选项
+    HedgeFlag:
+      type: string
+      enum: [SPECULATION, ARBITRAGE, HEDGE, MARKET_MAKER, COVERED, SPEC_AND_HEDGE, HEDGE_AND_SPEC]
+      description: |
+       委托单标志
+        - SPECULATION 投机. 用于组合指令时, 表示两腿都为投机 
+        - ARBITRAGE 套利 
+        - HEDGE 保值. 用于组合指令时, 表示两腿都为保值 
+        - MARKET_MAKER 做市 
+        - COVERED 备兑 
+        - SPEC_AND_HEDGE 用于两腿组合指令, 前一腿为投机, 后一腿为保值
+        - HEDGE_AND_SPEC 用于两腿组合指令, 前一腿为保值, 后一腿为投机
+    ForceCloseReason:
+      type: string
+      enum: [NOT_FORCE_CLOSE, LACK_DEPOSIT, CLIENT_OVER_POSITION_LIMIT, MEMBER_OVER_POSITION_LIMIT, NOT_MULTIPLE, VIOLATION, PERSON_DELIV, HEDGE_OVER_POSITION_LIMIT, OTHER]
+      description: |
+        强平原因
+        - NOT_FORCE_CLOSE 非强平
+        - LACK_DEPOSIT 资金不足
+        - CLIENT_OVER_POSITION_LIMIT 客户超仓
+        - MEMBER_OVER_POSITION_LIMIT 会员超仓
+        - NOT_MULTIPLE 持仓非整数倍
+        - VIOLATION 违规
+        - PERSON_DELIV 自然人临近交割
+        - HEDGE_OVER_POSITION_LIMIT 客户套保超仓
+        - OTHER 其它
+
+    ApiResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          format: int32
+          description: |
+            应答码
+            
+            - -1 失败
+            - 0 成功
+        message:
+          type: string
+          description: 应答信息
+      required:
+      - code
+      - message
+    Login:
+      type: object
+      properties:
+        user_name:
+          type: string
+          description: '用户名, 用户名一旦创建无法修改'
+        password:
+          type: string
+          description: 密码
+      required:
+      - user_name
+      - password
+    SystemStatus:
+      description: 系统状态
+      type: object
+      properties:
+        trading_day:
+          type: integer
+          description: '系统当前交易日, 格式 YYYYMMDD'
+        stage:
+          type: string
+          enum: [NOT_INITED, TRADING, SETTLED]
+          description: |
+            系统状态
+            
+            - NOT_INITED 待初始化
+            - TRADING 交易中
+            - SETTLED 已结算
+      required:
+      - trading_day
+      - stage
+    Token:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT格式的登录令牌
+    Permission:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+          description: 权限名称
+        description:
+          type: string
+          description: 权限描述文本
+      required:
+      - id
+      - name
+      - description
+    RoleInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 角色名称
+        description:
+          type: string
+          description: 角色描述文本
+        permissions:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Permission"
+      required:
+      - name
+      - description
+      - permissions
+    Role:
+      type: object
+      allOf:
+       - $ref: '#/components/schemas/RoleInfo'
+      properties:
+        id:
+          type: integer
+          format: int64
+      required:
+      - id
+    UserInfo:
+      type: object
+      description: 用户信息
+      properties:
+        user_name:
+          type: string
+          description: 用户名，登录时使用
+        password:
+          type: string
+          description: 用户密码
+        alias_name:
+          type: string
+          description: 用户别名
+        role_id:
+          type: integer
+          description: 用户角色ID。每个用户有且只能有一个角色
+        group_id:
+          type: integer
+          description: 组ID。每个用户有且只能有一个组
+      required:
+      - user_name
+      - password
+      - role_id
+      - group_id
+    User:
+      type: object
+      description: 用户
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 用户ID
+        user_name:
+          type: string
+          description: 用户名，登录时使用
+        alias_name:
+          type: string
+          description: 用户别名
+        role_id:
+          type: integer
+          description: 用户角色ID。每个用户有且只能有一个角色
+        group_id:
+          type: integer
+          description: 组ID。每个用户有且只能有一个组
+    GroupInfo:
+      type: object
+      properties:
+        group_name:
+          type: string
+          description: '组名称'
+        parent_group_id:
+          type: integer
+          description: '父组ID'
+      required:
+      - group_name
+      - parent_group_id
+    Group:
+      description: '用户组'
+      type: object
+      allOf:
+       - $ref: '#/components/schemas/GroupInfo'
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: '组ID'
+      required:
+      - id
+    UserProfile:
+      type: object
+      description: 用户
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 用户ID
+        user_name:
+          type: string
+          description: 用户名，登录时使用
+        alias_name:
+          type: string
+          description: 用户别名
+        group:
+          type: object
+          description: 用户组信息
+          allOf:
+          - $ref: '#/components/schemas/Group'
+        role:
+          type: object
+          description: 角色信息
+          allOf:
+          - $ref: '#/components/schemas/Role'
+        permissions:
+          type: array
+          items:
+            type: object
+            allOf:
+            - $ref: '#/components/schemas/Permission'
+    BackendAccountInfo:
+      type: object
+      properties:
+        server_id:
+          type: integer
+          description: '服务器ID'
+        user_name:
+          type: string
+          description: '后端账户登录账户'
+        password:
+          type: string
+          description: '后端账户登录密码'
+        alias_name:
+          type: string
+          description: '后端账户登录别名'
+      required:
+      - server_id
+      - user_name
+      - password
+    BackendAccount:
+      type: object
+      allOf:
+       - $ref: '#/components/schemas/BackendAccountInfo'
+      properties:
+        id:
+          type: integer
+          description: '后端账户ID'
+        status:
+          type: string
+          enum: [BEFORE_LOGIN, LOGINED, DISCONNECTED]
+          description: |
+            连接状态
+
+            - BEFORE_LOGIN 连接中
+            - LOGINED 登录成功
+            - DISCONNECTED 已断连
+        status_msg:
+          type: string
+          description: 登录状态提示信息
+      required:
+      - id
+      - status
+      - status_msg
+    BackendServer:
+      type: object
+      properties:
+        id:
+          description: 唯一名称
+          type: integer
+        broker:
+          type: string
+          description: 期货公司名
+        seat:
+          type: string
+          description: 席位名
+        channel:
+          type: string
+          description: 线路名
+      required:
+      - id
+      - broker
+      - seat
+      - channel
+    TransferCommand:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          description: '出入金用户ID'
+        type:
+          type: string
+          enum: [DEPOSIT, WITHDRAW]
+          description: |
+            出入金类型
+            - DEPOSIT 入金
+            - WITHDRAW 出金
+        amount:
+          type: number
+          description: 发生金额
+      required:
+      - user_id
+      - type
+      - amount
+    TransferRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 出入金编号
+        user_id:
+          type: integer
+          description: 用户ID
+        type:
+          type: string
+          enum: [DEPOSIT, WITHDRAW]
+          description: |
+            出入金类型
+
+            - DEPOSIT 入金
+            - WITHDRAW 出金
+        amount:
+          type: number
+          description: 出入金金额
+        date_time:
+          type: integer
+          description: '操作时间, 自unix epoch(1970-01-01 00:00:00 GMT)以来的纳秒数'
+        operator_id:
+          type: string
+          description: 操作员ID
+      required:
+      - id
+      - user_id
+      - type
+      - amount
+      - date_time
+      - operator_id
+    RateConfig:
+      type: object
+      properties:
+        group_id:
+          type: integer
+          description: 组ID
+        base:
+          type: string
+          enum: [INHERIT, NONE, BACKEND, MARKET]
+          description: |
+            费率基准
+            - INHERIT 以上级组为准
+            - NONE 无基准
+            - BACKEND 以指定后端账户为基准
+            - MARKET 以交易所费率为基准
+        backend_id:
+          type: integer
+          description: '后端账户ID'
+        margin_adjust:
+          description: '保证金配置'
+          type: array
+          items:
+            type: object
+            properties:
+              target:
+                type: string
+                description: '品种或合约代码'
+              direction:
+                type: string
+                enum: [BUY, SELL, ANY]
+                description: |
+                  持仓方向
+                  - BUY 多头
+                  - SELL 空头
+                  - ANY 表示对多头和空头持仓均生效
+              hedge:
+                type: string
+                enum: [SPECULATION, HEDGE, ANY]
+                description: |
+                  - SPECULATION 投机
+                  - HEDGE 保值
+                  - ANY 表示对投机和保值均生效
+              rate_by_amount:
+                type: number
+                description: '按金额计算费率'
+              rate_by_volume:
+                type: number
+                description: '按手数计算费率'
+            required:
+            - target
+            - direction
+            - hedge
+            - rate_by_amount
+            - rate_by_volume
+        commission_adjust:
+          description: '手续费配置'
+          type: array
+          items:
+            type: object
+            properties:
+              target:
+                type: string
+                description: '品种或合约'
+              offset:
+                type: string
+                enum: [OPEN, CLOSE, CLOSE_TODAY, ANY]
+                description: |
+                  开平仓标识
+                  - OPEN 开仓
+                  - CLOSE 平仓
+                  - CLOSE_TODAY 平今
+                  - ANY 对开仓、平仓和平今均支持
+              rate_by_amount:
+                type: number
+                description: '按金额计算费率'
+              rate_by_volume:
+                type: number
+                description: '按手数计算费率'
+            required:
+            - target
+            - offset
+            - rate_by_amount
+            - rate_by_volume
+      required:
+      - group_id
+      - base
+      - margin_adjust
+      - commission_adjust
+    RiskControlRuleInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 规则名
+        group_id:
+          type: integer
+          format: int64
+          description: 对应的组id
+        when:
+          type: string
+          enum: ["BEFORE", "AFTER"]
+          description: |
+            风控时机
+            - BEFORE 事前阻止
+            - AFTER 事后处理
+        expression:
+          type: string
+          description: 条件表达式
+        actions:
+          type: object
+          properties:
+            cancel_order:
+              type: boolean
+              description: "撤销所有委托"
+            forbid_trade:
+              type: boolean
+              description: "禁止用户交易"
+            clear_position:
+              type: boolean
+              description: "清空账户持仓"
+        enable:
+          type: boolean
+          description: "规则是否启用"
+      required:
+      - name
+      - group_id
+      - when
+      - expression
+      - actions
+      - enable
+    RiskControlRule:
+      type: object
+      allOf:
+       - $ref: '#/components/schemas/RiskControlRuleInfo'
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 规则编号
+      required:
+      - id
+    TradeMode:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [INHERIT, NONE, SIM, PROXY]
+          description: |
+            模式选择.
+            - INHERIT 继承上级组设置
+            - NONE 不允许交易
+            - SIM 模拟交易
+            - PROXY 指向后端账户
+        backend_id:
+          type: integer
+          format: int64
+          description: 对应的后端组id, 仅当 mode == PROXY 时有效
+      required:
+      - mode
+    Channel:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 频道编号
+        title:
+          type: string
+          description: 频道名称
+        members:
+          type: array
+          items:
+            type: string
+          description: 频道中成员
+        latest_message_id:
+          type: integer
+          format: int64
+          description: 频道中最新的消息编号
+      required:
+      - id
+      - title
+      - members
+    MessageInfo:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [TEXT, READ_NOTIFY]
+          description: |
+            消息类型
+            - TEXT 普通文本消息
+            - READ_NOTIFY 消息已读通知
+        content:
+          type: object
+          properties:
+            id:
+              type: integer
+              description: 已读消息的编号
+            text:
+              type: string
+              description: 消息内容
+        channel_id:
+          type: integer
+          format: int64
+          description: 频道编号
+      required:
+      - type
+      - content
+      - channel_id
+    Message:
+      type: object
+      allOf:
+       - $ref: '#/components/schemas/MessageInfo'
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 消息编号
+        sender_user_id:
+          type: integer
+          format: int64
+          description: 发送人编号
+        sender_alias:
+          type: string
+          description: 发送人别名
+        create_date_time:
+          type: integer
+          format: int64
+          description: 消息创建时间单位:纳秒
+        read_members:
+          type: array
+          items:
+            type: string
+          description: 已读收件人列表
+    DataViewSpecification:
+      type: object
+      properties:
+        view_id:
+          type: string
+          description: 业务数据视图ID
+        dataframe_id:
+          type: string
+          description: 原始数据表ID
+        fields:
+          type: array
+          items:
+            type: string
+          description: 所需的字段(表格列), 为空表示需要所有字段.
+        group_by_fields:
+          type: array
+          items:
+            type: string
+          description: 分组的字段(表格列).
+        split_by_fields:
+          type: array
+          items:
+            type: string
+          description: 划分的字段(表格列).
+        sort_fields:
+          type: array
+          items: 
+            type: array
+            items:
+              oneOf:
+              - type: string
+              - type: boolean
+            minItems: 2
+            maxItems: 2
+          description: 排序字段. 每项是 字段名+是否升序, openapi不支持pair, 客户端需保证数据类型为 [string, boolean].
+        filter_fields:
+          type: array
+          items:
+            type: object
+            properties:
+              column_name:
+                type: string
+                description: 筛选列名
+              filter_op_str:
+                type: string
+                description: 筛选操作符
+              filter_term:
+                oneOf:
+                - type: string
+                - type: boolean
+                - type: number
+                - type: array
+                  items: 
+                    type: string
+                description: 筛选内容
+          description: 筛选字段
+        aggregate_fields:
+          type: array
+          items: 
+            type: array
+            items:
+              oneOf:
+              - type: string
+              - type: array
+                items: 
+                  type: string
+            minItems: 2
+            maxItems: 2
+          description: 聚合方法. 每项是 列名+方法.
+        slice_start:
+          type: integer
+          description: 窗口起点
+        slice_end:
+          type: integer
+          description: 窗口终点
+    DataViewSnap:
+      type: object
+      properties:
+        id:
+          type: string
+          description: 业务数据视图ID
+        datas:
+          type: array
+          items:
+            type: object
+          description: 业务数据
+    AbnormalOrder:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 异常单ID
+        exchange_id: 
+          $ref: '#/components/schemas/ExchangeId'
+        front_order_id:
+          type: string
+          description: 前端委托单号
+        back_user_key:
+          type: string
+          description: 后端账户
+        back_order_id:
+          type: string
+          description: 后端委托单号
+        instrument_id:
+          type: string
+          description: '交易所合约代码, 大小写敏感'
+        direction:
+          $ref: '#/components/schemas/Direction'
+        offset:
+          $ref: '#/components/schemas/Offset'
+        volume_orign:
+          type: integer
+          description: 报单手数
+        volume_left:
+          type: integer
+          description: 未成手数
+        volume_trade:
+          type: integer
+          description: 成交手数
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        status_msg:
+          type: string
+          description: 详细状态
+        trade_price:
+          type: number
+          description: 成交均价
+        price_type:
+          $ref: '#/components/schemas/OrderPriceType'
+        limit_price:
+          type: number
+          description: |
+           报单限价, price_type == LIMIT 时必须填写, 必须是报单合约价格最小变动单位的整数倍
+        frozen_margin:
+          type: number
+          description: 冻结保证金
+        frozen_commission:
+          type: number
+          description: 冻结手续费
+        volume_condition:
+          $ref: '#/components/schemas/OrderVolumeCondition'
+        min_volume:
+          type: integer
+          description: |
+           最小成交量, volume_condition == MIN 时必须填写
+        time_condition:
+          $ref: '#/components/schemas/OrderTimeCondition'
+        hedge_flag:
+          $ref: '#/components/schemas/HedgeFlag'
+        force_close_reason:
+          $ref: '#/components/schemas/ForceCloseReason'
+        insert_date_time:
+          type: integer
+          description: '报单时间, 单位纳秒'
+        last_trade_date_time:
+          type: integer
+          description: '最后成交时间, 单位纳秒'
+    OrderInfo:
+      type: object
+      properties:
+        user_name:
+          type: string
+          description: 子账户用户名称
+        exchange_id:
+          $ref: '#/components/schemas/ExchangeId'
+        instrument_id:
+          type: string
+          description: '交易所合约代码, 大小写敏感'
+        direction:
+          $ref: '#/components/schemas/Direction'
+        offset:
+          $ref: '#/components/schemas/Offset'
+        volume:
+          type: integer
+          description: 委托手数
+        price_type:
+          $ref: '#/components/schemas/OrderPriceType'
+        limit_price:
+          type: number
+          description: |
+           报单限价, price_type == LIMIT 时必须填写, 必须是报单合约价格最小变动单位的整数倍
+        volume_condition:
+          $ref: '#/components/schemas/OrderVolumeCondition'
+        min_volume:
+          type: integer
+          description: |
+           最小成交量, volume_condition == MIN 时必须填写
+        time_condition:
+          $ref: '#/components/schemas/OrderTimeCondition'
+        hedge_flag:
+          $ref: '#/components/schemas/HedgeFlag'
+      required:
+      - user_name
+      - exchange_id
+      - instrument_id
+      - direction
+      - offset
+      - volume
+      - price_type
+      - volume_condition
+      - time_condition
+      - hedge_flag
+    Order:
+      type: object
+      allOf:
+       - $ref: '#/components/schemas/OrderInfo'
+      properties:
+        order_id:
+          type: string
+          description: 报单编号
+      required:
+      - order_id

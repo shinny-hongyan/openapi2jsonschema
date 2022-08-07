@@ -20,7 +20,13 @@ jobs:
     - name: Build with Maven
       run: mvn -B package --file pom.xml
 
-    - name: Publish to GitHub Packages Apache Maven
-      run: mvn deploy -s $GITHUB_WORKSPACE/settings.xml
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
+    - name: convertor openapi yaml to json schema
+      run: |
+        mkdir -p ${{ github.workspace }}/dist
+        openapi2jsonschema-1.0.jar --input ${{ github.workspace }}/yaml/api.yaml --output ${{ github.workspace }}/dist
+
+    - name: Upload dist
+      uses: actions/upload-artifact@v2
+      with:
+        name: jsonschema
+        path: ${{ github.workspace }}/dist
