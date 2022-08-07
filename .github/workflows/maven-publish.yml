@@ -29,7 +29,8 @@ jobs:
     - name: Convertor openapi yaml to json schema
       run: |
         mkdir -p ${{ github.workspace }}/dist
-        sudo ${{ github.workspace }}/target/openapi2jsonschema-1.0.jar --input ${{ github.workspace }}/yaml/api.yaml --output ${{ github.workspace }}/dist
+        cd ${{ github.workspace }}/target
+        sudo openapi2jsonschema-1.0.jar --input ${{ github.workspace }}/yaml/api.yaml --output ${{ github.workspace }}/dist
 
     - name: Upload dist
       uses: actions/upload-artifact@v2
