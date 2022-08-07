@@ -3,6 +3,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 生成 apigateway 主配置文件
+ * */
 public class ApiGateway {
 
     private Map<String, Object> config;
